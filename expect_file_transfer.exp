@@ -1,0 +1,62 @@
+# Crontab job starts the process everyday at a set time.
+crontab -e
+25 1 * * * initialize_transfer.sh
+
+# Shell script to feed values into the expect script
+vim initialize_transfer.sh
+
+	# Encrypted storage for sensitive passwords.
+	gpg --output pass.txt --decrypt pass.gpg
+	pass = cat pass.txt 
+
+	# Use srm to securely overwrite + delete the cleartext password.
+	srm pass.txt
+
+	# Get local ip automatically.
+	myip = ifconfig eno16777736 | grep "inet" | sed s/" "/\\n/g | head | tail 1
+
+	# Get the local user
+	luser=whoami
+
+	# Get the date
+	date_=date +%Y-%m-%d-%T
+
+	# Begin the transfer expect script.
+	./transfer.exp remoteuser 10.56.35.12 pass myip date_
+
+	# Make a record in syslog.
+	logger "starting transfer.exp remoteuser 10.56.35.12 date_"
+
+
+# Expect script
+vim transfer.exp 
+	# Take inputs from the command line.
+	set remoteuser [lindex $argv 0]
+	set remoteip [lindex $argv 1]
+	set remotepass [lindex $argv 2]
+	set remotefile = /var/local/important_files.txt
+
+	set myip [lindex $argv 3]
+	set date_ [lindex $argv 4]
+	set localfil = /var/local/important_files.txt
+	
+	# Start SSH.
+	spawn ssh $remoteuser@$remoteip
+
+	# Login.
+	expect "password:" 
+	send $remotepass
+
+	# Begin backups.
+	expect "]#"
+	send "rsync -rave "ssh $localuser@$localip:$localfile$date_ -p $localpass $remoteuser@$remoteip:$remotefile -p $remotepass >> /var/log/rsync"
+
+	# Record the event in syslog.
+	expect "]#"
+	send "logger "Daily backup completed via transfer.exp from $localip ."" 
+
+	# Disconnect.
+	disconnect
+
+	system "logger "Daily backup completed via transfer.exp from $remoteip ."
+
